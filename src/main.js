@@ -19,6 +19,10 @@ let curSX=-999,curSY=-999;
 // ── Worker (OffscreenCanvas + ESM, fire-and-forget) ──
 let wk;
 {
+  // FIX: set base canvas to correct size BEFORE transferring to offscreen,
+  // so the worker's initial canvas is full-resolution, not the default 300×150.
+  const _pw=Math.round(innerWidth*dpr),_ph=Math.round(innerHeight*dpr);
+  base.width=_pw; base.height=_ph;
   const off=base.transferControlToOffscreen();
   wk = new InlineWorker();
   wk.postMessage({type:'init',canvas:off,dpr,vp:{...vp},strokes:[]},[off]);
@@ -182,7 +186,10 @@ function startDraw(sx,sy){
   isDrawing=true;const p=s2w(sx,sy);drawPts=[p];
   const isE=tool==='eraser',ew=isE?ERASER_W[wi]:PEN_W[wi];
   applyVP(lctx);
-  lctx.fillStyle=isE?'#fff':COLORS[ci];
+  // FIX: eraser on transparent live canvas must use destination-out to punch through
+  // to the white base canvas. Drawing white (#fff) on transparent is invisible.
+  if(isE){lctx.globalCompositeOperation='destination-out';lctx.fillStyle='rgba(0,0,0,1)';}
+  else{lctx.globalCompositeOperation='source-over';lctx.fillStyle=COLORS[ci];}
   lctx.beginPath();lctx.arc(p.x,p.y,ew/2,0,Math.PI*2);lctx.fill();
 }
 
@@ -192,10 +199,11 @@ function continueDraw(sx,sy){
   const dx=(p.x-last.x)*vp.scale,dy=(p.y-last.y)*vp.scale;
   if(dx*dx+dy*dy<4)return;
   drawPts.push(p);
-  // FIX: re-apply VP each segment — defensive against any state that might have drifted
   applyVP(lctx);
   const isE=tool==='eraser';
-  appendSeg(lctx,drawPts,isE?'#fff':COLORS[ci],isE?ERASER_W[wi]:PEN_W[wi]);
+  // FIX: same destination-out fix for live segments
+  if(isE){lctx.globalCompositeOperation='destination-out';appendSeg(lctx,drawPts,'rgba(0,0,0,1)',ERASER_W[wi]);}
+  else{lctx.globalCompositeOperation='source-over';appendSeg(lctx,drawPts,COLORS[ci],PEN_W[wi]);}
 }
 const endDraw=()=>{if(isDrawing){isDrawing=false;commitStroke();}};
 const cancelStroke=()=>{drawPts=[];clearLive();};
